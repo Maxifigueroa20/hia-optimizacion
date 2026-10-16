@@ -1,0 +1,261 @@
+BASE DE DATOS POSTGRES – CONCEPTOS DE OPTIMIZACIÓN
+OPTIMIZACION DE CONSULTAS
+Ejecuta tus consultas lentas con EXPLAIN ANALYZE para ver el plan de ejecución y el tiempo real que toma cada paso.
+Esto te dirá si el planificador está eligiendo un camino ineficiente. En esencia, te dice dos cosas:
+1. EXPLAIN: Te muestra el plan de ejecución que el optimizador de PostgreSQL va a usar para tu consulta. Es
+como si le pidieras al motor de la base de datos que te muestre su estrategia para encontrar y procesar los
+datos, sin ejecutar realmente la consulta.
+2. ANALYZE: Ejecuta la consulta y luego te muestra el tiempo real que tomó cada paso de ese plan de ejecución.
+También te da detalles adicionales como la cantidad de filas procesadas, el tiempo de inicio y el tiempo total.
+• Añade índices: Si EXPLAIN muestra que PostgreSQL está haciendo un "scan" completo de una tabla grande (Full
+Table Scan), es probable que necesites un índice en las columnas utilizadas en las cláusulas WHERE, JOIN o
+ORDER BY.
+• Reescribe la consulta: A veces, una simple reescritura de la consulta puede mejorar drásticamente el
+rendimiento.
+¿Cómo funciona y por qué es tan útil?
+Imagina que le das a un mensajero una lista de direcciones.
+• EXPLAIN es como si el mensajero te dijera su ruta planeada: "Primero iré a la calle principal, luego al barrio 2,
+y por último al edificio 5".
+• ANALYZE es como si el mensajero fuera realmente a entregar los paquetes y luego te contara exactamente
+cuánto tiempo le tomó cada paso: "El viaje a la calle principal tomó 5 minutos, el recorrido por el barrio tomó
+15 minutos, y la búsqueda del edificio tomó 30 minutos".
+La combinación de ambos te permite comparar la estrategia planeada (EXPLAIN) con la ejecución real (ANALYZE).
+• Si el plan de ejecución es malo (por ejemplo, hace un escaneo completo de una tabla enorme en lugar de
+usar un índice), EXPLAIN te lo mostrará.
+• Si el plan parece bueno pero la consulta sigue siendo lenta, ANALYZE te dirá en qué paso específico se está
+perdiendo el tiempo. Quizás un JOIN está tardando mucho o el servidor está esperando a que se lean los
+datos del disco.
+Ejemplos Prácticos
+Ejemplo 1: Consulta con buen rendimiento
+Supongamos que tienes una tabla productos con un índice en la columna id y ejecutas la siguiente consulta:
+SQL
+EXPLAIN ANALYZE SELECT * FROM productos WHERE id = 1000;
+Salida posible:
+QUERY PLAN
+--------------------------------------------------------------------------------------
+Index Scan using productos_pkey on productos (cost=0.42..8.44 rows=1 width=120)
+
+-- 1 of 7 --
+
+(actual time=0.045..0.046 rows=1 loops=1)
+Index Cond: (id = 1000)
+Planning Time: 0.088 ms
+Execution Time: 0.065 ms
+Análisis de la salida:
+• Index Scan: EXPLAIN nos dice que PostgreSQL usó un escaneo de índice (index scan), que es la forma más
+eficiente de buscar un valor específico en una tabla con un índice. Esto es bueno.
+• actual time: ANALYZE nos confirma que la ejecución fue extremadamente rápida (aproximadamente 0.045
+ms para el escaneo y 0.065 ms en total).
+Ejemplo 2: Consulta lenta sin índice
+Ahora, imagina que la misma tabla no tiene un índice en la columna nombre_producto y buscas por ese valor:
+SQL
+EXPLAIN ANALYZE SELECT * FROM productos WHERE nombre_producto = 'Laptop';
+Salida posible:
+QUERY PLAN
+-----------------------------------------------------------------------------------------------
+Seq Scan on productos (cost=0.00..26.15 rows=1 width=120)
+(actual time=5.123..15.875 rows=1 loops=1)
+Filter: (nombre_producto = 'Laptop')
+Planning Time: 0.120 ms
+Execution Time: 16.012 ms
+Análisis de la salida:
+• Seq Scan: EXPLAIN muestra que PostgreSQL tuvo que hacer un escaneo secuencial (Sequential Scan). Esto
+significa que leyó cada fila de la tabla desde el principio hasta el final para encontrar la que coincidía. Esto es
+muy ineficiente en tablas grandes.
+• Execution Time: ANALYZE confirma la lentitud, mostrando un tiempo total de 16.012 ms, que es
+significativamente mayor que el del escaneo de índice del ejemplo anterior.
+Solución: La salida de EXPLAIN ANALYZE te indica que el problema es la falta de un índice. Al añadir uno en la
+columna nombre_producto, el plan de ejecución cambiaría a Index Scan y el tiempo de ejecución se reduciría
+drásticamente.
+PGBENCH
+pgbench es una herramienta de benchmarking y prueba de carga para bases de datos PostgreSQL. Viene incluida con
+la instalación de PostgreSQL y está diseñada para simular la carga de trabajo de múltiples clientes que ejecutan
+transacciones de forma concurrente, con pgbench de formas más sencillas y fiables podemos generar una base de
+datos pesada para pruebas. Es una herramienta de referencia para medir el rendimiento de la base de datos.
+1. Crea una base de datos vacía:
+# createdb mytestdb -U postgres
+2. Inicializa la base de datos con datos de prueba:
+# pgbench -i -s 10 mytestdb -U postgres
+o -i: Inicializa la base de datos. Pgbench crea un esquema de trabajo por defecto.
+
+-- 2 of 7 --
+
+o -s 10: Establece el factor de escala. Esto crea una base de datos 10 veces más grande que la
+predeterminada. Un factor de escala de 10 creará una base de datos de aproximadamente 150 MB. Un
+factor de escala de 100 creará una base de datos de aproximadamente 1.5 GB. Para una base de datos
+"pesada", usa un factor de escala de 100 o más.
+3. Ejecuta una prueba de carga: Una vez que la base de datos esté inicializada, puedes ejecutar una prueba de
+carga para medir su rendimiento:
+# pgbench -c 10 -j 2 -t 1000 mytestdb
+o -c 10: Simula 10 clientes concurrentes.
+o -j 2: Este parámetro le dice a pgbench que use 2 hilos (o procesos) para gestionar las 10 conexiones.
+o -t 1000: Ejecuta 1000 transacciones por cliente.
+Transacciones Totales = número de clientes (-c) * transacciones por cliente (-t)
+Consideraciones Adicionales
+• Volumen de Datos: Antes de empezar, decide qué tan grande quieres que sea tu base de datos (por ejemplo,
+1 GB, 10 GB o 100 GB). Esto te ayudará a elegir la herramienta y el factor de escala adecuados.
+• Tipo de Datos: Los datos pueden ser realistas. Solo que deberás crear un script de consulta y pasarle a
+pgbench para que lo ejecute. Para poblar automáticamente tu Base de Datos utiliza herramientas como la
+misma IA donde le puedes proveer el esquema de base de datos y solicitarle que te genere miles de registros.
+• Hardware: Para obtener resultados de rendimiento significativos, asegúrate de que el hardware de tu
+servidor de base de datos sea lo suficientemente potente para manejar la carga de datos que vas a inyectar.
+Test 01
+postgres@9325d9b5bd8f:/$ pgbench -c 10 -j 2 -t 1000 mytestdb
+pgbench (17.6 (Debian 17.6-1.pgdg13+1))
+starting vacuum...end.
+transaction type: <builtin: TPC-B (sort of)>
+scaling factor: 10
+query mode: simple
+number of clients: 10
+number of threads: 2
+maximum number of tries: 1
+number of transactions per client: 1000
+number of transactions actually processed: 10000/10000
+number of failed transactions: 0 (0.000%)
+latency average = 3.045 ms
+initial connection time = 8.202 ms
+tps = 3283.607476 (without initial connection time)
+postgres@9325d9b5bd8f:/$
+Test 02
+Archivo Postgresql.conf
+Parámetros relevantes al rendimiento
+max_connections
+• Máximo número de conexiones permitidas a la base de datos.
+• Debe mantenerse en un valor razonable.
+• Al escoger el valor de max_connections se debe considerar el uso de work_mem.
+• Se puede usar algún pool de conexiones (PgPool, PgBouncer) para mantener este valor bajo.
+
+-- 3 of 7 --
+
+shared_buffers
+• Este parámetro determina cuanta memoria puede usar PostgreSQL de forma dedicada para mantener
+datos en cache. Aumenta este valor para permitir que PostgreSQL guarde más datos en memoria. Un
+buen punto de partida es el 25% de la RAM total del servidor.
+• Si no se indica la unidad se asume 8Kb por cada shared buffer. shared_buffers = 1024 (8Mb)
+• Puede necesitarse alterar el valor de SHMMAX.
+work_mem
+• Este parámetro determina cuanta memoria puede usar PostgreSQL en operaciones de ordenamiento y
+para tablas hash antes de usar archivos temporales. Aumenta este valor si tus consultas realizan
+operaciones de ordenamiento (sorts) o "hash joins" grandes en memoria.
+• Este valor se aplica por operación (una consulta realizando varios ordenamientos usará X veces este
+valor)
+• Al escoger el valor de work_mem se debe considerar el valor de max_connections, un valor razonable
+puede ser entre el 2-4% del total de la memoria.
+• Para mitigar el costo de usar archivos temporales se puede usar el parámetro temp_tablespaces
+max_fsm_pages y max_fsm_relations
+• Guardan información sobre el espacio libre (reutilizable) generado debido a la existencia de tuplas
+muertas en la base de datos.
+• El FSM solo se registra durante vacuum.
+• max_fsm_relations debería ser igual al total de tablas e índices en todas las bases de datos de una
+instalación.
+• Se puede usar vacuum verbose para determinar el valor de max_fsm_pages.
+wal_buffers
+• Es un parámetro de configuración que controla la cantidad de memoria compartida que PostgreSQL
+dedica al almacenamiento de datos del Write-Ahead Log (WAL).
+• El WAL es un registro de todas las transacciones de la base de datos, utilizado para garantizar la
+integridad de los datos en caso de un fallo.
+• Aumenta para mejorar el rendimiento de escritura. Al aumentar el tamaño de wal_buffers, permites que
+más datos del WAL se acumulen en memoria antes de tener que ser escritos al disco. Esto reduce la
+frecuencia de las operaciones de escritura en disco, mejorando el rendimiento general.
+maintenance_work_mem
+• El parámetro maintenance_work_mem en PostgreSQL es una configuración de memoria que limita la
+cantidad de memoria usada para las operaciones de mantenimiento de la base de datos, como VACUUM,
+CREATE INDEX y ALTER TABLE.
+• A diferencia de work_mem (que se usa para operaciones de consulta), maintenance_work_mem solo se
+utiliza para tareas de administración que no son de consulta. Esto te permite asignar más memoria a
+estas tareas sin afectar el rendimiento de las consultas concurrentes.
+• Este parámetro es crucial para acelerar las tareas de mantenimiento que de otra forma podrían ser
+lentas. Su impacto más notable es en la construcción de índices y el VACUUM.
+• CREATE INDEX: Cuando creas un índice, PostgreSQL carga los datos de la tabla en memoria para
+ordenarlos antes de escribir el índice en el disco. Si maintenance_work_mem es lo
+suficientemente grande para contener todos los datos del índice, la operación será mucho más
+rápida porque se evita el uso de archivos temporales en el disco.
+
+-- 4 of 7 --
+
+• VACUUM: Esta operación de limpieza recupera el espacio de almacenamiento ocupado por filas
+"muertas" (eliminadas). Un valor más alto de maintenance_work_mem permite que VACUUM
+trabaje de forma más eficiente, especialmente en tablas grandes, lo que reduce el tiempo de la
+operación y el uso de espacio en el disco.
+• Ejemplo de impacto: Imagina que tienes una tabla muy grande de 10 GB y quieres crear un índice en una
+de sus columnas.
+Escenario Configuración Impacto
+Baja Memoria maintenance_work_mem = 64MB
+PostgreSQL usará solo 64MB para ordenar los
+datos. El resto de los datos (más de 9 GB) se
+escribirán en archivos temporales en el disco.
+La operación será lenta y saturará el disco.
+Alta Memoria maintenance_work_mem = 512MB o más
+PostgreSQL usará la memoria asignada para
+ordenar los datos en memoria. La operación
+será mucho más rápida y el uso del disco será
+mínimo, ya que se evita la creación de archivos
+temporales.
+Luego de afinar los parámetros guarda los cambios y recarga la configuración. Para ello usa pg_ctl reload o docker
+exec para aplicar los cambios sin reiniciar la base de datos.
+VACUUM - Mantén la base de datos saludable
+VACUUM: PostgreSQL utiliza un sistema llamado Control de Concurrencia Multiversión (MVCC). Esto significa que
+cuando actualizas o borras una fila, la fila antigua no se elimina físicamente de inmediato. En su lugar, se marca como
+"muerta" (dead tuple) y se crea una nueva versión de la fila.
+Con el tiempo, estas "tuplas muertas" se acumulan y ocupan espacio en el disco, lo que se conoce como "bloat".
+VACUUM es el comando que limpia estas tuplas muertas, liberando el espacio para que pueda ser reutilizado por
+nuevas filas.
+¿Cómo se ejecuta?
+Puedes ejecutar VACUUM desde una consola de PostgreSQL (como psql).
+# VACUUM <nombre_de_la_tabla>;
+No especifico una tabla en particular si quiero limpiar todas las tablas
+Tipos de VACUUM
+Hay dos tipos principales de VACUUM manual, además del proceso automático.
+1. VACUUM (Lazy Vacuum - el predeterminado)
+o Función: Escanea la tabla y marca el espacio de las tuplas muertas como "disponible" para ser
+reutilizado por la misma tabla o por nuevos datos en el futuro.
+
+-- 5 of 7 --
+
+o Funcionamiento: No devuelve el espacio al sistema operativo, por lo que el archivo de la base de
+datos no se encoge.
+o Bloqueo: No bloquea la tabla para lecturas y escrituras, lo que lo hace seguro para ejecutar en un
+entorno de producción con alta carga.
+o Uso: Es el método más común y recomendado para el mantenimiento rutinario. Es el que ejecuta el
+proceso autovacuum.
+2. VACUUM FULL
+o Función: Esta es una operación mucho más agresiva. Reconstruye completamente la tabla en un
+nuevo archivo de disco, eliminando todo el espacio libre y el "bloat".
+# VACUUM FULL <nombre_de_la_tabla>;
+o Funcionamiento: Devuelve el espacio no utilizado al sistema operativo, lo que hace que el tamaño del
+archivo de la tabla se reduzca.
+o Bloqueo: Bloquea la tabla por completo con un bloqueo ACCESS EXCLUSIVE. Esto significa que no se
+pueden realizar lecturas ni escrituras en la tabla mientras se ejecuta, lo que puede causar un tiempo
+de inactividad significativo.
+o Uso: Solo debe usarse cuando sea estrictamente necesario, por ejemplo, cuando hay una gran
+cantidad de "bloat" y necesitas recuperar el espacio para el sistema operativo, y tu aplicación puede
+tolerar el tiempo de inactividad.
+3. VACUUM ANALYZE
+o Función: Este comando es una combinación de VACUUM y ANALYZE. Primero limpia las tuplas
+muertas (VACUUM) y luego actualiza las estadísticas de la tabla (ANALYZE).
+# VACUUM ANALYZE <table_name>;
+o ANALYZE: Es una operación clave para el optimizador de consultas de PostgreSQL. Recolecta
+estadísticas sobre la distribución de los datos en la tabla. El optimizador usa estas estadísticas para
+decidir el mejor plan de ejecución para una consulta (por ejemplo, si usar un índice o hacer un
+escaneo de la tabla completo).
+o Uso: Es una de las combinaciones más comunes y recomendadas para el mantenimiento. El
+autovacuum también realiza esta operación de forma predeterminada.
+Autovacuum: El proceso automático
+PostgreSQL tiene un demonio llamado autovacuum que se ejecuta en segundo plano. Está habilitado por defecto y
+monitorea las tablas para determinar si necesitan ser "vacuumizadas" o "analizadas" basándose en umbrales de
+cambios de datos. Para la mayoría de los casos, autovacuum es suficiente para mantener tu base de datos en buen
+estado.
+¿Cuándo ejecutar VACUUM manualmente?
+Aunque el autovacuum es muy eficiente, hay situaciones en las que es útil ejecutar VACUUM manualmente.
+• Después de una operación masiva de datos: Si has importado o eliminado una gran cantidad de datos, es
+recomendable ejecutar VACUUM manualmente para liberar espacio y actualizar las estadísticas de la tabla de
+inmediato, sin esperar a que el autovacuum se active automáticamente.
+
+-- 6 of 7 --
+
+• Problemas de rendimiento: Si notas que el rendimiento de tu base de datos ha disminuido después de una
+operación masiva, ejecutar VACUUM ANALYZE puede ayudar a que el planificador de consultas tenga
+información actualizada para optimizar las consultas.
+
+-- 7 of 7 --
+

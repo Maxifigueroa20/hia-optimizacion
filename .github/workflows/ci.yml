@@ -1,0 +1,22 @@
+name: CI - Proyecto Integrador
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+
+      - name: Verificar archivos del proyecto
+        run: |
+          echo "Iniciando integracion continua..."
+          ls -la
+          echo "Repositorio descargado correctamente"
+
+      - name: Finalizar
+        run: echo "CI basico ejecutado correctamente"
